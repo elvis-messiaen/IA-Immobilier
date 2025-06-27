@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>IA&Immobilier – Estimez votre bien immobilier</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>IA&Immobilier</h1>
+    <h2>Estimez votre bien immobilier à Lille</h2>
+
+    <form id="predictForm">
+      <label>
+        Ville :
+        <input type="text" name="ville" id="ville" placeholder="Lille, Bordeaux..." required />
+      </label>
+
+      <label>
+        Surface bâtie :
+        <input type="number" name="surface_bati" required />
+      </label>
+
+      <label>
+        Nombre de pièces :
+        <input type="number" name="nombre_pieces" required />
+      </label>
+
+      <label>
+        Type local :
+        <select name="type_local" id="type_local" required>
+          <option value="Appartement">Appartement</option>
+          <option value="Maison">Maison</option>
+        </select>
+      </label>
+
+      <label>
+        Surface terrain :
+        <input type="number" name="surface_terrain" required />
+      </label>
+
+      <label>
+        Nombre de lots :
+        <input type="number" name="nombre_lots" required />
+      </label>
+
+      <label>
+        Modèle :
+        <select name="model" required>
+          <option value="LinearRegression">LinearRegression</option>
+          <option value="DecisionTreeRegressor">DecisionTreeRegressor</option>
+          <option value="RandomForestRegressor">RandomForestRegressor</option>
+          <option value="XGBoost">XGBoost</option>
+        </select>
+      </label>
+
+      <label>
+        Type de bien :
+        <input type="text" name="type_bien" id="type_bien" value="appartements" readonly style="background:#eee;" required />
+      </label>
+
+      <button type="submit">Estimer</button>
+    </form>
+
+    <div class="result-block">
+      <h3>Résultat brut (JSON) :</h3>
+      <pre id="result"></pre>
+
+      <h3>Résumé :</h3>
+      <div id="summary"></div>
+      <div id="error-message" style="color: red; margin-top: 1em;"></div>
+    </div>
+  </div>
+
+  <script>
+    // Synchronisation automatique du type de bien
+    const typeLocal = document.getElementById("type_local");
+    const typeBien = document.getElementById("type_bien");
+    function syncTypeBien() {
+      typeBien.value = typeLocal.value === "Maison" ? "maisons" : "appartements";
+    }
+    typeLocal.addEventListener("change", syncTypeBien);
+    syncTypeBien();
+
+    document.getElementById("predictForm").addEventListener("submit", async function (event) {
+      event.preventDefault();
+
+      const formData = new FormData(event.target);
+      // Ajout manuel du champ type_bien car input readonly n'est pas toujours envoyé
+      formData.set("type_bien", typeBien.value);
+      const data = {};
+      formData.forEach((value, key) => {
+        data[key] = isNaN(value) || value.trim() === "" ? value : Number(value);
+      });
+
+      // Réinitialise les messages d'erreur
+      document.getElementById("error-message").textContent = "";
+      document.getElementById("result").textContent = "";
+      document.getElementById("summary").innerHTML = "";
+
+      // Gestion intelligente de la ville et du endpoint
+      const villeInput = document.getElementById("ville").value.trim().toLowerCase();
+      if (!villeInput) {
+        document.getElementById("error-message").textContent = "Veuillez saisir une ville.";
+        return;
+      }
+
+      let endpoint = "";
+      let payload = {};
+      if (villeInput === "lille") {
+        endpoint = "/models/predict/lille";
+        payload = { ...data };
+      } else if (villeInput === "bordeaux") {
+        endpoint = "/models/predict/bordeaux";
+        payload = { ...data };
+      } else {
+        endpoint = "/models/predict";
+        payload = {
+          ville: villeInput,
+          features: { ...data }
+        };
+      }
+
+      try {
+        const response = await fetch(`http://127.0.0.1:8000${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          let errorMsg = "Erreur lors de la prédiction. ";
+          try {
+            const err = await response.json();
+            errorMsg += err.detail || JSON.stringify(err);
+          } catch (e) {
+            errorMsg += `Code HTTP : ${response.status}`;
+          }
+          document.getElementById("error-message").textContent = errorMsg;
+          return;
+        }
+
+        const result = await response.json();
+        document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+
+        const prix = result.prix_m2_estime?.toFixed(2) ?? "n/a";
+        const modele = result.model ?? "inconnu";
+        const ville = result.ville_modele ?? villeInput.charAt(0).toUpperCase() + villeInput.slice(1);
+
+        document.getElementById("summary").innerHTML = `
+          <p><strong>Le prix estimé pour votre bien est de :</strong> <span class="highlight">${prix} €/m²</span></p>
+          <p><strong>La ville prise en compte pour votre estimation :</strong> ${ville}</p>
+          <p><strong>Le moodèle utilisé est :</strong> ${modele}</p>
+        `;
+      } catch (error) {
+        document.getElementById("error-message").textContent = "Erreur réseau ou inattendue : " + error;
+      }
+    });
+  </script>
+</body>
+</html>
